@@ -119,6 +119,27 @@ async def get_select_subject_name(update: Update, context: ContextTypes.DEFAULT_
     #PLACEHOLDER
     return ConversationHandler.END
 
+
+def buttons(path):
+    subjects = open(path+'.txt','r')
+    n_subjects = len(subjects.readlines())
+    buttons = []
+    keyboard1 = ReplyKeyboardMarkup(resize_keyboard = True, one_time_keyboard = True)
+    n = 0
+    for i in subjects:
+        buttons.append(KeyboardButton('i'))
+        keyboard1.add(buttons[n])
+        n+=1
+  
+    
+@dp.message_handler(commands=[])
+async def welc():
+    await message.reply("choose subject", reply_markup = keyboard1)
+@dp.message_handler():
+    
+
+#async def kb_answer(message:types.Message):
+
 def main() -> None:
     """Run the bot"""
     application = Application.builder().token(token).build()
