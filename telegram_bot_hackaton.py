@@ -36,7 +36,10 @@ SUBJECT_LIST, a, b, c  = range(4)
 
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.info(str(update.message.chat_id))
+    """Start bot, shows list of commands"""
+
+    logger.info(f'User {update.message.chat_id} started the bot')
+    logger.info(update.message.from_user)
 
     await update.message.reply_text(
         "Привіт! Вибери команду:\n"
@@ -46,21 +49,13 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 async def add_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    logger.info(str(update.message.chat_id))
+    """/add_subject entry point"""
 
-    await update.message.reply_text(
-        "Введи назву предмету:\n"
-    )
-
+    await update.message.reply_text("Введи назву предмету:\n")
     return 0
 
-async def get_subject_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    logger.info(update.message.from_user)
-
-    msg = update.message.text
-
-    filename = str(update.message.chat_id)+'_subjects.txt'
-
+def _get_lines_from_file(filename):
+    """Reads lines from file"""
     file = open(filename,'a')
     file.close()
 
@@ -68,46 +63,91 @@ async def get_subject_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -
     lines = file.readlines()
     lines = [line.strip() for line in lines]
     file.close()
+    
+    return lines
+
+
+async def get_add_subject_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Gets subject name from user and adds it to the list"""
+
+    msg = update.message.text
+    filename = str(update.message.chat_id)+'_subjects.txt'
+    lines = _get_lines_from_file(filename)
 
     if msg in lines:
-        await update.message.reply_text(
-            "Предмет вже існує", reply_markup=ReplyKeyboardRemove()
-        )
+        logger.info(f'{update.message.chat_id} tried to add subject {msg}, already exists')
+        await update.message.reply_text("Предмет вже існує")
     else:
         file = open(filename,'a')
         file.write(msg+'\n')
         file.close()
 
-        await update.message.reply_text(
-            f"Предмет {msg} успішно доданий до списку", reply_markup=ReplyKeyboardRemove()
-        )
+        logger.info(f'{update.message.chat_id} have added subject {msg}')
+        await update.message.reply_text(f"Предмет {msg} успішно доданий до списку")
 
     return ConversationHandler.END
 
 async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """End current conversation"""
+    return ConversationHandler.END
+
+
+def _delete_line(file_path, line_to_delete):
+    """Delete all instances of given line from file"""
+
+    with open(file_path, 'r') as file:
+        lines = file.readlines()
+
+    with open(file_path, 'w') as file:
+        for line in lines:
+            if line.strip() != line_to_delete:
+                file.write(line)
+
+async def delete_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    """Delete subject contained in context.user_data['selected_subject']"""
+
+    subject_name = context.user_data['selected_subject']
+
+    filename = str(update.message.chat_id)+'_subjects.txt'
+    _delete_line(filename, subject_name)
+
+    logger.info(f'{update.message.chat_id} have deleted subject {subject_name}')
+    await update.message.reply_text(f"Предмет {subject_name} був видалений зі списку")
+
+
+async def get_select_subject_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    #PLACEHOLDER
     return ConversationHandler.END
 
 def main() -> None:
-    """Run the bot."""
-    # Create the Application and pass it your bot's token.
+    """Run the bot"""
     application = Application.builder().token(token).build()
     
+    #start
     application.add_handler(CommandHandler("start", start))
-    #application.add_handler(CommandHandler("choose_subject", choose_subject))
 
-    #CommandHandler("add_subject", add_subject)
-
-    # Add conversation handler with the states GENDER, PHOTO, LOCATION and BIO
+    #add subject
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("add_subject", add_subject)],
         states={
-            0: [MessageHandler(filters.TEXT, get_subject_name)]
+            0: [MessageHandler(filters.TEXT, get_add_subject_name)]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     application.add_handler(conv_handler)
 
-    # Run the bot until the user presses Ctrl-C
+    #select_subject
+    conv_handler = ConversationHandler(
+        entry_points=[CommandHandler("select_subject", add_subject)],
+        states={
+            0: [MessageHandler(filters.TEXT, get_select_subject_name)],
+            -1: []
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    application.add_handler(conv_handler)
+
+    #run
     application.run_polling()
 
 
