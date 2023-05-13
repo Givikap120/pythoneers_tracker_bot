@@ -117,7 +117,28 @@ async def delete_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
 async def get_select_subject_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     #PLACEHOLDER
+    logger.info('functioncalled')
+    subjects = open('_subjects.txt','r')
+        #n_subjects = len(subjects.readlines())
+    buttons = []       
+    #keyboard1 = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
+        
+    n = 0
+    for i in subjects:
+            buttons.append(telegram.KeyboardButton(i))
+           # keyboard1.add(buttons[n])
+            n+=1
+            logger.info(i)
+    
+    #subjects.close()
+
+    keyboard1 = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True,keyboard = [buttons,])
+    await update.message.reply_text('Виберіть предмет',reply_markup = keyboard1)
     return ConversationHandler.END
+
+    
+
+#async def kb_answer(message:types.Message):
 
 def main() -> None:
     """Run the bot"""
@@ -138,7 +159,7 @@ def main() -> None:
 
     #select_subject
     conv_handler = ConversationHandler(
-        entry_points=[CommandHandler("select_subject", add_subject)],
+        entry_points=[CommandHandler("select_subject", select_subject)],
         states={
             0: [MessageHandler(filters.TEXT, get_select_subject_name)],
             -1: []
