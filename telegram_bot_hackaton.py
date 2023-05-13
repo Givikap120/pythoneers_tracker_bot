@@ -2,7 +2,7 @@ import logging
 from telegram import Update
 from telegram import __version__ as TG_VER
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
-
+# eto ya
 token = '6216487125:AAG-FBLzFruHkBtz-QL3B8hg3O1_V9gST9M'
 
 try:
