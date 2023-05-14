@@ -1,8 +1,10 @@
 import logging
+from token import COMMA
+import telegram as tg
 from telegram import Update
 from telegram import __version__ as TG_VER
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
-
+import pandas as pd
 token = '6216487125:AAG-FBLzFruHkBtz-QL3B8hg3O1_V9gST9M'
 
 try:
@@ -23,6 +25,7 @@ from telegram.ext import (
     ContextTypes,
     ConversationHandler,
     MessageHandler,
+    CallbackQueryHandler,
     filters,
 )
 
@@ -44,14 +47,14 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text(
         "Привіт! Вибери команду:\n"
         "/add_subject - додати предмет\n"
-        "/choose_subject - вибрати предмет\n"
+        "/select_subject - вибрати предмет\n"
         + f"Твій айді - {update.message.chat_id}"
     )
 
 async def add_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """/add_subject entry point"""
 
-    await update.message.reply_text("Введи назву предмету:\n")
+    await update.message.reply_text("Введіть назву предмету:\n")
     return 0
 
 def _get_lines_from_file(filename):
@@ -103,42 +106,108 @@ def _delete_line(file_path, line_to_delete):
             if line.strip() != line_to_delete:
                 file.write(line)
 
+
+
+GET_SELECT_SUBJECT, CHOOSE_ACTION = range(2)
+
+async def select_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+
+    filename = str(update.message.chat_id)+'_subjects.txt'
+    lines = _get_lines_from_file(filename)
+    buttons = []       
+        
+    n = 0
+    for i in lines:
+        buttons.append(tg.KeyboardButton(i))
+
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, keyboard = [buttons,])
+    await update.message.reply_text('Виберіть предмет',reply_markup = keyboard)
+
+    return GET_SELECT_SUBJECT
+
+
+async def get_select_subject_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    msg = update.message.text
+    context.user_data['selected_subject'] = msg
+    
+    filename = str(update.message.chat_id)+'_subjects.txt'
+    lines = _get_lines_from_file(filename)
+
+    if msg not in lines:
+        await update.message.reply_text(f'Предмет {msg} не є в списку')
+        return ConversationHandler.END
+
+    keyboard = [
+        [
+            tg.InlineKeyboardButton('Показати завдання', callback_data="show"),
+            tg.InlineKeyboardButton('Редагувати завдання', callback_data="edit"),
+        ],
+        [
+            tg.InlineKeyboardButton('Додати завдання', callback_data="add"),
+            tg.InlineKeyboardButton('Видалити предмет', callback_data="delete"),
+        ],
+    ]
+
+    reply_markup = tg.InlineKeyboardMarkup(keyboard)
+
+    
+
+    await update.message.reply_text(f'Обраний предмет - {msg}', reply_markup=reply_markup)
+
+    return CHOOSE_ACTION
+
+async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    
+    return ConversationHandler.END
+
+async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    a = 1
+
+async def edit_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    a = 1
+
+async def add_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    
+    try:
+        df = pd.read_csv(str(update.effective_chat.id)+'_subjects.csv')
+    except: 
+        df = pd.DataFrame( {'Subject':[context.user_data['selected_subject']],
+                     'Task':[''],
+                     'Status':[0],
+                     'Deadline':['']})
+        await context.bot.send_message(update.effective_chat.id, f"Додайте завдання")
+        
+        df.Task = 1  #message
+        await context.bot.send_message(update.effective_chat.id, f"Додайте дедлайн")
+        
+        df.Deadline = pd.to_datetime(str(1))#message
+        df.to_csv(str(update.effective_chat.id)+'_subjects.csv')
+
+    subj = 1#subj 
+    await context.bot.send_message(update.effective_chat.id, f"Додайте завдання")        
+    task = 1#task
+    await context.bot.send_message(update.effective_chat.id, f"Додайте дедлайн")        
+    deadline = pd.to_datetime(1) 
+
+    #df.append({'Subject':subj,'Task':task,'Status':0,'Deadline':deadline},ignore_index = True)
+    
+    
+       
+
 async def delete_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Delete subject contained in context.user_data['selected_subject']"""
 
     subject_name = context.user_data['selected_subject']
 
-    filename = str(update.message.chat_id)+'_subjects.txt'
+    filename = str(update.effective_chat.id)+'_subjects.txt'
     _delete_line(filename, subject_name)
 
-    logger.info(f'{update.message.chat_id} have deleted subject {subject_name}')
-    await update.message.reply_text(f"Предмет {subject_name} був видалений зі списку")
+    logger.info(f'{update.effective_chat.id} have deleted subject {subject_name}')
+    #await update.callback_query.answer(f"Предмет {subject_name} був видалений зі списку")
+    await context.bot.send_message(update.effective_chat.id, f"Предмет {subject_name} був видалений зі списку")
 
-
-async def get_select_subject_name(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
-    #PLACEHOLDER
-    logger.info('functioncalled')
-    subjects = open('_subjects.txt','r')
-        #n_subjects = len(subjects.readlines())
-    buttons = []       
-    #keyboard1 = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True)
-        
-    n = 0
-    for i in subjects:
-            buttons.append(telegram.KeyboardButton(i))
-           # keyboard1.add(buttons[n])
-            n+=1
-            logger.info(i)
-    
-    #subjects.close()
-
-    keyboard1 = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True,keyboard = [buttons,])
-    await update.message.reply_text('Виберіть предмет',reply_markup = keyboard1)
     return ConversationHandler.END
-
     
-
-#async def kb_answer(message:types.Message):
 
 def main() -> None:
     """Run the bot"""
@@ -161,12 +230,17 @@ def main() -> None:
     conv_handler = ConversationHandler(
         entry_points=[CommandHandler("select_subject", select_subject)],
         states={
-            0: [MessageHandler(filters.TEXT, get_select_subject_name)],
-            -1: []
+            GET_SELECT_SUBJECT: [MessageHandler(filters.TEXT, get_select_subject_name)],
+            CHOOSE_ACTION: [MessageHandler(filters.TEXT, choose_action),
+                            CallbackQueryHandler(show_tasks, pattern="^show$"),
+                            CallbackQueryHandler(edit_tasks, pattern="^edit$"),
+                            CallbackQueryHandler(add_tasks, pattern="^add$"),
+                            CallbackQueryHandler(delete_subject, pattern="^delete$")]
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     application.add_handler(conv_handler)
+    application.add_handler(CommandHandler("delete_subject", delete_subject))
 
     #run
     application.run_polling()
