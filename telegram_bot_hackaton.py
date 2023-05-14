@@ -164,7 +164,26 @@ async def edit_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None
     a = 1
 
 async def add_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    a = 1
+   try:
+        df = pd.read_csv(str(update.effective_chat.id)+'_subjects.csv')
+    except: 
+        df = pd.DataFrame( {'Subject':[context.user_data['selected_subject']],
+                     'Task':[''],
+                     'Status':[0],
+                     'Deadline':['']})
+        await context.bot.send_message(update.effective_chat.id, f"Додайте завдання")
+        
+        df.Task = 1  #message
+        await context.bot.send_message(update.effective_chat.id, f"Додайте дедлайн")
+        
+        df.Deadline = pd.to_datetime(str(1))#message
+        df.to_csv(str(update.effective_chat.id)+'_subjects.csv')
+
+    subj = 1#subj 
+    await context.bot.send_message(update.effective_chat.id, f"Додайте завдання")        
+    task = 1#task
+    await context.bot.send_message(update.effective_chat.id, f"Додайте дедлайн")        
+    deadline = pd.to_datetime(1) 
 
 async def delete_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Delete subject contained in context.user_data['selected_subject']"""
