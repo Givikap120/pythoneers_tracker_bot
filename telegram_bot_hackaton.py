@@ -1,9 +1,13 @@
 import logging
-from token import COMMA
 import telegram as tg
+import pandas as pd
+from datetime import datetime
 from telegram import Update
 from telegram import __version__ as TG_VER
 from telegram.ext import ApplicationBuilder, ContextTypes, CommandHandler
+
+import humanize
+humanize.i18n.activate("uk_UA")
 
 token = '6216487125:AAG-FBLzFruHkBtz-QL3B8hg3O1_V9gST9M'
 
@@ -48,6 +52,8 @@ async def start(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
         "Привіт! Вибери команду:\n"
         "/add_subject - додати предмет\n"
         "/select_subject - вибрати предмет\n"
+        "/show_report - продивитися звіт\n"
+        "/cancel - перервати інтеракцію\n"
         + f"Твій айді - {update.message.chat_id}"
     )
 
@@ -157,8 +163,43 @@ async def get_select_subject_name(update: Update, context: ContextTypes.DEFAULT_
 async def choose_action(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     return ConversationHandler.END
 
+
+async def show_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Shows general report for user"""
+
+    filename = str(update.effective_chat.id)+'_tasks.csv'
+    df = pd.read_csv(filename)
+    df['deadline'] = pd.to_datetime(df['deadline'], format="%d/%m/%Y")
+
+    current_datetime = datetime.now()
+    df['time_to_deadline'] = df.deadline - current_datetime
+
+    pos_deadlines = df[df['time_to_deadline'] >= pd.Timedelta(0)][df.status == 0]
+    neg_deadlines = df[df['time_to_deadline'] < pd.Timedelta(0)][df.status == 0]
+
+    closest_dl = pos_deadlines['time_to_deadline'].idxmin()
+
+    await context.bot.send_message(
+        update.effective_chat.id, 
+        f"Найближчий дедлайн через {humanize.naturaldelta(df.time_to_deadline.iloc[closest_dl])}, "
+        f"завдання {df.task.iloc[closest_dl]}, "
+        f"предмет {df.subject.iloc[closest_dl]}"
+    )
+
+    to_print = 'Просрочені дедлайни:\n'
+
+    for index, row in neg_deadlines.iterrows():
+        to_print+=f'{row.subject}, завдання {row.task}\n'
+    
+    await context.bot.send_message(
+        update.effective_chat.id, 
+        to_print
+    )
+
 async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    a = 1
+    filename = str(update.effective_chat.id)+'_tasks.csv'
+    df = pd.read_csv(filename, parse_dates=['deadline'])
+
 
 async def edit_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     a = 1
@@ -212,7 +253,9 @@ def main() -> None:
         fallbacks=[CommandHandler("cancel", cancel)],
     )
     application.add_handler(conv_handler)
-    application.add_handler(CommandHandler("delete_subject", delete_subject))
+
+    #show_report
+    application.add_handler(CommandHandler("show_report", show_report))
 
     #run
     application.run_polling()
