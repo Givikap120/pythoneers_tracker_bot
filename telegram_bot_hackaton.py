@@ -1,6 +1,7 @@
 import logging
 import telegram as tg
 import pandas as pd
+import numpy as np
 from datetime import datetime
 from telegram import Update
 from telegram import __version__ as TG_VER
@@ -114,7 +115,7 @@ def _delete_line(file_path, line_to_delete):
 
 
 
-GET_SELECT_SUBJECT, CHOOSE_ACTION = range(2)
+GET_SELECT_SUBJECT, CHOOSE_ACTION, GET_TASK, GET_DEADLINE, GET_SELECT_TASK  = range(5)
 
 async def select_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
 
@@ -169,7 +170,7 @@ async def show_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
 
     filename = str(update.effective_chat.id)+'_tasks.csv'
     df = pd.read_csv(filename)
-    df['deadline'] = pd.to_datetime(df['deadline'], format="%d/%m/%Y")
+    df['deadline'] = pd.to_datetime(df['deadline'], format="%Y-%m-%d")
 
     current_datetime = datetime.now()
     df['time_to_deadline'] = df.deadline - current_datetime
@@ -177,54 +178,172 @@ async def show_report(update: Update, context: ContextTypes.DEFAULT_TYPE) -> Non
     pos_deadlines = df[df['time_to_deadline'] >= pd.Timedelta(0)][df.status == 0]
     neg_deadlines = df[df['time_to_deadline'] < pd.Timedelta(0)][df.status == 0]
 
-    closest_dl = pos_deadlines['time_to_deadline'].idxmin()
+    try:
+        closest_dl = pos_deadlines['time_to_deadline'].idxmin()
+        await context.bot.send_message(
+            update.effective_chat.id, 
+            f"Найближчий дедлайн через {humanize.naturaldelta(df.time_to_deadline.iloc[closest_dl])}, "
+            f"завдання {df.task.iloc[closest_dl]}, "
+            f"предмет {df.subject.iloc[closest_dl]}"
+        )
+    except:
+        await context.bot.send_message(update.effective_chat.id, 'Активних дедлайнів не знайдено')
 
-    await context.bot.send_message(
-        update.effective_chat.id, 
-        f"Найближчий дедлайн через {humanize.naturaldelta(df.time_to_deadline.iloc[closest_dl])}, "
-        f"завдання {df.task.iloc[closest_dl]}, "
-        f"предмет {df.subject.iloc[closest_dl]}"
-    )
+    if len(neg_deadlines) == 0:
+        to_print = 'Просрочених дедлайнів нема'
 
-    to_print = 'Просрочені дедлайни:\n'
+    else:
+        to_print = 'Просрочені дедлайни:\n'
+        for index, row in neg_deadlines.iterrows():
+            to_print+=f'{row.subject}, завдання {row.task}\n'
 
-    for index, row in neg_deadlines.iterrows():
-        to_print+=f'{row.subject}, завдання {row.task}\n'
-    
     await context.bot.send_message(
         update.effective_chat.id, 
         to_print
     )
 
 async def show_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    filename = str(update.effective_chat.id)+'_tasks.csv'
-    df = pd.read_csv(filename, parse_dates=['deadline'])
+    subject = context.user_data['selected_subject']
 
+    filename = str(update.effective_chat.id)+'_tasks.csv'
+    df = pd.read_csv(filename)
+    df = df[df.subject == subject]
+
+    to_print = ''
+
+    for index, row in df.iterrows():
+        to_print += f'{row.task}, статус - '
+        if(row.status == 1):
+            to_print += 'виконано'
+        else:
+            to_print += 'не виконано'
+        if not pd.isna(row.deadline):
+            to_print += f', дедлайн - {row.deadline}'
+        to_print+='\n'
+
+    await context.bot.send_message(
+        update.effective_chat.id, 
+        to_print
+    )
+
+
+async def add_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    filename = str(update.effective_chat.id)+'_tasks.csv'
+    file = open(filename,'a')
+    file.close()
+
+    subject = context.user_data['selected_subject']
+    try: df = pd.read_csv(filename)
+    except: df = pd.DataFrame(columns=['subject', 'task', 'status', 'deadline'])
+
+    context.user_data['selected_dataframe'] = df
+
+    await context.bot.send_message(
+        update.effective_chat.id, 
+        'Введіть назву завдання'
+    )
+
+    return GET_TASK
+
+async def get_select_task(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    msg = update.message.text
+    context.user_data['selected_task'] = msg
+
+    subject = context.user_data['selected_subject']
+    filename = str(update.effective_chat.id)+'_tasks.csv'
+    df = pd.read_csv(filename)
+    df = df[df.subject == subject]
+
+    if not df.isin([msg]).any().any():
+        await update.message.reply_text(f'Завдання {msg} не є в списку')
+        return ConversationHandler.END
+
+    row = df[df['task'] == msg]
+    row = row.T.iloc[:, 0]
+
+    keyboard = [
+        [
+            tg.InlineKeyboardButton('Редагувати назву', callback_data="name"),
+            tg.InlineKeyboardButton('Змінити статус', callback_data="status"),
+        ],
+        [
+            tg.InlineKeyboardButton('Змінити дедлайн', callback_data="deadline"),
+            tg.InlineKeyboardButton('Видалити завдання', callback_data="delete"),
+        ],
+    ]
+
+    reply_markup = tg.InlineKeyboardMarkup(keyboard)
+    to_print = ''
+    to_print += f'{row.task}, статус - '
+    if(row.status == 1):
+        to_print += 'виконано'
+    else:
+        to_print += 'не виконано'
+    if not pd.isna(row.deadline):
+        to_print += f', дедлайн - {row.deadline}'
+    to_print+='\n'
+
+    await update.message.reply_text(to_print, reply_markup=reply_markup)
+    return ConversationHandler.END
+
+async def get_task_from_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    msg = update.message.text
+
+    df = context.user_data['selected_dataframe']
+    subject = context.user_data['selected_subject']
+
+    df_only_subject = df[df.subject == subject]
+
+    if df_only_subject.isin([msg]).any().any():
+        await context.bot.send_message(update.effective_chat.id, 'Таке завдання вже існує')
+        return ConversationHandler.END
+
+    context.user_data['chosen_task_name'] = msg
+    await context.bot.send_message(update.effective_chat.id, 'Введіть дедлайн у форматі DD/MM/YYYY або що завгодно для відсутності дедлайну')
+    return GET_DEADLINE
+
+async def get_deadline_from_user(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
+    msg = update.message.text
+
+    df = context.user_data['selected_dataframe']
+    subject = context.user_data['selected_subject']
+    task = context.user_data['chosen_task_name']
+    try: deadline = pd.to_datetime(msg).date()
+    except: deadline = np.nan
+
+    df.loc[len(df)] = [subject, task, 0, deadline]
+    df.to_csv(str(update.effective_chat.id)+'_tasks.csv', index=False)
+    
+    if pd.isna(deadline):
+        await context.bot.send_message(
+            update.effective_chat.id, 
+            f'Завдання {task} без дедлайну додано до предмету {subject}')
+    else:
+        await context.bot.send_message(
+            update.effective_chat.id, 
+            f'Завдання {task} з дедлайном {deadline} додано до предмету {subject}')
+
+    return ConversationHandler.END
 
 async def edit_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-    a = 1
+    subject = context.user_data['selected_subject']
 
-async def add_tasks(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
-   try:
-        df = pd.read_csv(str(update.effective_chat.id)+'_subjects.csv')
-    except: 
-        df = pd.DataFrame( {'Subject':[context.user_data['selected_subject']],
-                     'Task':[''],
-                     'Status':[0],
-                     'Deadline':['']})
-        await context.bot.send_message(update.effective_chat.id, f"Додайте завдання")
-        
-        df.Task = 1  #message
-        await context.bot.send_message(update.effective_chat.id, f"Додайте дедлайн")
-        
-        df.Deadline = pd.to_datetime(str(1))#message
-        df.to_csv(str(update.effective_chat.id)+'_subjects.csv')
+    filename = str(update.effective_chat.id)+'_tasks.csv'
+    df = pd.read_csv(filename)
+    df = df[df.subject == subject]
 
-    subj = 1#subj 
-    await context.bot.send_message(update.effective_chat.id, f"Додайте завдання")        
-    task = 1#task
-    await context.bot.send_message(update.effective_chat.id, f"Додайте дедлайн")        
-    deadline = pd.to_datetime(1) 
+    buttons = []       
+        
+    n = 0
+    for index, row in df.iterrows():
+        buttons.append(tg.KeyboardButton(row.task))
+
+    keyboard = ReplyKeyboardMarkup(resize_keyboard=True, one_time_keyboard=True, keyboard = [buttons,])
+    await context.bot.send_message(update.effective_chat.id,'Виберіть завдання',reply_markup = keyboard)
+
+    return GET_SELECT_TASK
+
+
 
 async def delete_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> int:
     """Delete subject contained in context.user_data['selected_subject']"""
@@ -233,6 +352,14 @@ async def delete_subject(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     filename = str(update.effective_chat.id)+'_subjects.txt'
     _delete_line(filename, subject_name)
+
+    filename = str(update.effective_chat.id)+'_tasks.csv'
+    try:
+        df = pd.read_csv(filename)
+        df = df[df.subject != subject_name]
+        df.to_csv(str(update.effective_chat.id)+'_tasks.csv', index=False)
+    except:
+        logger.info('no csv detected')
 
     logger.info(f'{update.effective_chat.id} have deleted subject {subject_name}')
     #await update.callback_query.answer(f"Предмет {subject_name} був видалений зі списку")
@@ -267,7 +394,11 @@ def main() -> None:
                             CallbackQueryHandler(show_tasks, pattern="^show$"),
                             CallbackQueryHandler(edit_tasks, pattern="^edit$"),
                             CallbackQueryHandler(add_tasks, pattern="^add$"),
-                            CallbackQueryHandler(delete_subject, pattern="^delete$")]
+                            CallbackQueryHandler(delete_subject, pattern="^delete$")],
+           GET_TASK: [MessageHandler(filters.TEXT, get_task_from_user)],
+           GET_DEADLINE: [MessageHandler(filters.TEXT, get_deadline_from_user)],
+           GET_SELECT_TASK: [MessageHandler(filters.TEXT, get_select_task)]
+
         },
         fallbacks=[CommandHandler("cancel", cancel)],
     )
